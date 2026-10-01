@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title></title>
+<title>Pixel Reorder</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Silkscreen&display=swap">
@@ -131,7 +131,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 650; }
   border: 1px solid var(--line); border-radius: 4px; background: var(--stage); overflow: hidden;
 }
 .thumb canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.thumb:hover { border-color: var(--ink); }
+button.thumb:hover { border-color: var(--ink); }
 .well.dragover .thumb { outline: 2px dashed var(--focus); outline-offset: 3px; }
 .well-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .error { margin: 8px 0 0; font-size: 13px; color: var(--r); }
@@ -189,7 +189,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 650; }
       <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <h1>Pixel Reorder</h1>
     </div>
-    <p class="lede">Pick any image From your laptop and turn it into the world's longest middle finger, leona flipping you off</p>
+    <p class="lede">Pick any image. Every one of its pixels gets moved, none recolored, until together they form the target.</p>
   </header>
 
   <main class="work">
@@ -239,11 +239,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 650; }
         </div>
         <div class="well" id="targetWell">
           <div class="well-head"><h2>Target</h2><span class="hint">what they form</span></div>
-          <button class="thumb" id="targetThumbBtn" type="button" aria-label="Change target image"><canvas id="targetThumb" width="1" height="1"></canvas></button>
-          <div class="well-actions">
-            <button class="btn" id="chooseTarget" type="button">Change target</button>
-          </div>
-          <p class="error" id="targetError" role="alert" hidden></p>
+          <div class="thumb"><canvas id="targetThumb" width="1" height="1" role="img" aria-label="Target image"></canvas></div>
         </div>
       </div>
 
@@ -297,11 +293,11 @@ h2 { margin: 0; font-size: 15px; font-weight: 650; }
     bar: $("bar"), rec: $("rec"), fatal: $("fatal"),
     play: $("play"), iconPlay: $("iconPlay"), iconPause: $("iconPause"),
     strip: $("strip"), stripCanvas: $("stripCanvas"), playhead: $("playhead"),
-    sourceWell: $("sourceWell"), targetWell: $("targetWell"),
+    sourceWell: $("sourceWell"),
     sourceThumb: $("sourceThumb"), targetThumb: $("targetThumb"),
-    sourceThumbBtn: $("sourceThumbBtn"), targetThumbBtn: $("targetThumbBtn"),
-    chooseSource: $("chooseSource"), chooseTarget: $("chooseTarget"), file: $("file"),
-    sourceError: $("sourceError"), targetError: $("targetError"),
+    sourceThumbBtn: $("sourceThumbBtn"),
+    chooseSource: $("chooseSource"), file: $("file"),
+    sourceError: $("sourceError"),
     sizes: $("sizes"), count: $("count"),
     duration: $("duration"), durationOut: $("durationOut"),
     swirl: $("swirl"), swirlOut: $("swirlOut"), scatter: $("scatter"), scatterOut: $("scatterOut"),
@@ -864,29 +860,24 @@ void main() { gl_FragColor = vec4(v_color, 1.0); }`;
   });
 
   // ------------------------------------------------------------------ inputs
-  let pickFor = "source";
-  ui.chooseSource.addEventListener("click", () => pickFile("source"));
-  ui.sourceThumbBtn.addEventListener("click", () => pickFile("source"));
-  ui.chooseTarget.addEventListener("click", () => pickFile("target"));
-  ui.targetThumbBtn.addEventListener("click", () => pickFile("target"));
-  function pickFile(kind) { if (state.recording) return; pickFor = kind; ui.file.value = ""; ui.file.click(); }
-  ui.file.addEventListener("change", () => { const f = ui.file.files && ui.file.files[0]; if (f) useFile(f, pickFor); });
+  // the target is fixed: only the source image can be changed
+  ui.chooseSource.addEventListener("click", pickFile);
+  ui.sourceThumbBtn.addEventListener("click", pickFile);
+  function pickFile() { if (state.recording) return; ui.file.value = ""; ui.file.click(); }
+  ui.file.addEventListener("change", () => { const f = ui.file.files && ui.file.files[0]; if (f) useFile(f); });
 
-  function setError(kind, msg) {
-    const el = kind === "target" ? ui.targetError : ui.sourceError;
-    el.textContent = msg; el.hidden = !msg;
-  }
-  async function useFile(file, kind) {
+  function setError(msg) { ui.sourceError.textContent = msg; ui.sourceError.hidden = !msg; }
+  async function useFile(file) {
     if (state.recording) return;
     try {
       const img = await fileToImage(file);
       if (!(img.naturalWidth && img.naturalHeight)) throw new Error("empty");
-      setError(kind, "");
-      if (kind === "target") state.targetImg = img;
-      else { state.source = { kind: "image", img }; markSample(null); }
+      setError("");
+      state.source = { kind: "image", img };
+      markSample(null);
       rebuild();
     } catch (err) {
-      setError(kind, "That file couldn't be opened as an image. Try a JPG, PNG or WebP.");
+      setError("That file couldn't be opened as an image. Try a JPG, PNG or WebP.");
     }
   }
 
@@ -896,31 +887,30 @@ void main() { gl_FragColor = vec4(v_color, 1.0); }`;
     return null;
   };
   const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
-  function wireDrop(el, kind) {
+  function wireDrop(el) {
     el.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); el.classList.add("dragover"); } });
     el.addEventListener("dragleave", (e) => { if (!el.contains(e.relatedTarget)) el.classList.remove("dragover"); });
     el.addEventListener("drop", (e) => {
       e.preventDefault(); e.stopPropagation();
       el.classList.remove("dragover");
       const f = firstImage(e.dataTransfer);
-      if (f) useFile(f, kind);
+      if (f) useFile(f);
     });
   }
-  wireDrop(ui.sourceWell, "source");
-  wireDrop(ui.targetWell, "target");
-  wireDrop(ui.stage, "source");
+  wireDrop(ui.sourceWell);
+  wireDrop(ui.stage);
   document.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
   document.addEventListener("drop", (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
     const f = firstImage(e.dataTransfer);
-    if (f) useFile(f, "source");
+    if (f) useFile(f);
   });
   document.addEventListener("paste", (e) => {
     const items = e.clipboardData ? Array.from(e.clipboardData.items) : [];
     const item = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
     const f = item && item.getAsFile();
-    if (f) { e.preventDefault(); useFile(f, "source"); }
+    if (f) { e.preventDefault(); useFile(f); }
   });
 
   const chips = Array.from(document.querySelectorAll("[data-sample]"));
@@ -930,7 +920,7 @@ void main() { gl_FragColor = vec4(v_color, 1.0); }`;
     const name = c.dataset.sample;
     state.source = name === "scrambled" ? { kind: "scramble" } : { kind: "image", img: sample(name) };
     markSample(name);
-    setError("source", "");
+    setError("");
     rebuild();
   }));
 
@@ -1103,7 +1093,7 @@ void main() { gl_FragColor = vec4(v_color, 1.0); }`;
   state.source = { kind: "image", img: sample("sunset") };
   markSample("sunset");
   loadURL(TARGET_SRC).then((img) => { state.targetImg = img; rebuild(); })
-    .catch(() => setError("target", "The built-in target image didn't load. Choose one with Change target."));
+    .catch(() => fatal("The target image didn't load. Reload the page to try again."));
 })();
 </script>
 </body>
